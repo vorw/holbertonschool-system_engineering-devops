@@ -8,3 +8,26 @@
 8- Application server may use database like MySQL to get/store data
 9- Application server sends back HTTP(s) response to Nginx
 10- Finally, Nginx sends it back to the user browser
+
+What is a server
+- Physical/Physical computer that hosts everything with IP 8.8.8.8
+What is the role of the domain name
+- It's easier than typing numbers.. so its just a name to replace that
+What type of DNS record www is in www.foobar.com
+- A record which points to a IPv4 address
+What is the role of the web server
+- Recieves HTTP(s) request, returns static files (if available), and sends non-static files to application server
+What is the role of the application server
+- Handles Backend code
+What is the role of the database
+- Stores data
+What is the server using to communicate with the computer of the user requesting the website
+- It uses HTTP(s) over TCP/IP
+
+Issues with this infrastructure:
+SPOF:
+- Single Point Of Failure -- Everything is on one server.. server dies -> nothing left
+Downtime when maintenance needed (like deploying new code web server needs to be restarted):
+- When there's maintenance like updating MySQL database, for example, it will need to restart so the website will go offline for a bit
+Cannot scale if too much incoming traffic:
+- No Load balancer.. One server can't handle too much traffic..
