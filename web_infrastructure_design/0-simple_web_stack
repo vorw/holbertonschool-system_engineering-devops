@@ -1,0 +1,10 @@
+1- User opens their browser, enters "www.foobar.com" into their search box
+2- Browser asks DNS to switch it to an IP address
+3- DNS responds with 8.8.8.8
+4- After Browser gets it, it sends HTTP(S) request to that address (on port 80)
+5- On that server(machine with IP 8.8.8.8), the web server (Nginx) recieves request firstly
+6- Nginx checks: If its a normal static file(files stored as is in the disk, ex: basic HTML files, .png, .jpg), Nginx sends its directly to the browser
+7- Nginx checks: If its a non-static file, it sends it to the application server to process and return back the response to Nginx
+8- Application server may use database like MySQL to get/store data
+9- Application server sends back HTTP(s) response to Nginx
+10- Finally, Nginx sends it back to the user browser
