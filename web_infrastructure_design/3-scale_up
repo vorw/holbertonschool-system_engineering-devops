@@ -1,0 +1,38 @@
+1- User opens their browser, enters "www.foobar.com" into their search box
+2- Browser asks DNS to switch it to an IP address
+3- DNS responds with 8.8.8.8 (this time 8.8.8.8 is a virtual IP shared by 2 load balancers in a cluster)
+4- After Browser gets it, it sends an HTTPS request to that address (on port 443, remember cause its not secured)
+5- The request hits the active load balancer (HAProxy #1 or #2, depending on which one is currently active in the cluster)
+6- The load balancer terminates SSL (uses the SSL certificate for www.foobar.com to decrypt HTTPS into plain HTTP inside the private network)
+7- The load balancer looks at its config and picks one of the web servers (for example using Round Robin: first request to Web Server 1, second to Web Server 2, third back to Web Server 1, etc..)
+8- The load balancer forwards the HTTP request to the chosen web server
+9- On that web server, Nginx receives the request first
+10- Nginx checks: if it’s a normal static file (files stored as-is on disk, ex: HTML, .png, .jpg, .css, .js), Nginx sends it directly back to the load balancer
+11- If it’s a non-static/dynamic request, Nginx forwards it to one of the application servers (these are on separate machines that only run app code)
+12- The application server receives the request, runs the backend code, and if it needs data, it talks to the database server (a dedicated MySQL server)
+13- MySQL on the DB server handles the queries (reads/writes). Optionally there can still be a Primary DB and Replica DB, but now they live on dedicated DB machines instead of mixed web/app/DB servers
+14- The application server builds the HTTP response and sends it back to the web server (Nginx)
+15- Nginx sends the response back to the load balancer (over HTTP inside the private network)
+16- The load balancer sends the response back to the user over the existing HTTPS connection
+17- If the active load balancer fails, the second load balancer in the cluster takes over the virtual IP 8.8.8.8 automatically, so users can still reach the site
+
+For every additional element, why am I adding it
+Extra load balancer (HAProxy) configured as cluster with the other one:
+- To avoid having a single point of failure at the load balancer level
+- If one HAProxy instance dies, the other one takes over the virtual IP and continues serving traffic
+- Increases availability and reliability of the entry point to the whole thing
+Split web server on its own server(s):
+- Web servers (Nginx) now focus only on handling HTTP, static files, and proxying to app servers
+- Easier to scale just the web layer (add more Nginx servers if static traffic is high)
+- Keeps web concerns separate from app and DB, which makes troubleshooting cleaner
+Split application server on its own server(s):
+- Application servers now only run the backend code and business logic
+- We can scale the app layer independently (if app logic is heavy, add more app servers without touching DB or web servers)
+- Separates CPU-heavy app logic from Nginx and from the database, improving performance and isolation
+Split database on its own server(s):
+- Database now lives on dedicated DB server(s), optimized only for storage and queries
+- Easier to scale DB storage
+- Keeps data more secure and isolated; if application or web crashes it don’t directly mess with DB processes
+Extra server:
+- Needed to host one of the split roles or to host the second HAProxy in the cluster
+- Overall goal is to move away from "everything on the same box" and build separate tiers that can scale and fail independently
