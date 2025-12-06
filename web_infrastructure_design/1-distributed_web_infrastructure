@@ -1,0 +1,51 @@
+1- User opens their browser, enters "www.foobar.com" into their search box
+2- Browser asks DNS to switch it to an IP address
+3- DNS responds with 8.8.8.8 (this time 8.8.8.8 is the load balancer IP)
+4- After Browser gets it, it sends HTTP(S) request to that address (on port 80)
+5- Request reaches the load balancer server (machine with IP 8.8.8.8 running HAProxy)
+6- Load balancer (HAProxy) looks at its config and picks one of the 2 backend servers (for example using Round Robin: first request to Server 1, second to Server 2, third back to Server 1, etc..)
+7- HAProxy forwards the HTTP(S) request to the chosen backend server (Server 1 or Server 2)
+8- On that backend server (its own private IP), the web server (Nginx) receives the request first
+9- Nginx checks: If it’s a normal static file (files stored as-is on disk, ex: basic HTML files, .png, .jpg, .css, .js), Nginx sends it directly back to HAProxy
+10- Nginx checks: If it’s a non-static/dynamic request, it sends it to the application server on the same machine to process it and return the response back to Nginx
+11- Application server may use the local MySQL database to get/store data (one server is configured as Primary DB, the other as Replica)
+12- Primary DB gets all the writes; Replica DB gets updates from the Primary through replication
+13- Application server sends back HTTP(S) response to Nginx
+14- Nginx sends the response back to HAProxy
+15- Finally, HAProxy sends it back to the user browser
+
+What is the load balancer (HAProxy) and why am I adding it
+- A separate server in front of the 2 backend servers that receives all traffic and spreads requests between them so more users can be handled and if one backend dies the other can still serve the site
+What are the 2 backend servers and why am I adding them
+- Each backend server has Nginx + app server + app code + MySQL, so traffic doesn’t depend on a single machine anymore and we can handle more load
+What distribution algorithm is the load balancer using and how it works
+- Round Robin: it sends the first request to Server 1, second to Server 2, third to Server 1, and so on in a loop, which spreads traffic evenly
+Is the load balancer enabling Active-Active or Active-Passive, and what is the difference
+- Here it’s Active-Active on the backend: both Server 1 and Server 2 are active at the same time and receive traffic
+- Active-Active: multiple servers are serving users at the same time, traffic is shared
+- Active-Passive: one server is active, the other is on standby and only takes over if the active one fails
+How a database Primary & Replica (Master & Slave) work
+- Primary (Master) handles all the writes (INSERT, UPDATE, DELETE)
+- Replica (Slave) gets a copy of all changes from the Primary using replication (it replays the Primary’s changes). Usually as backup
+What is the difference between the Primary node and the Replica node in regard to the application
+- Primary: main DB the app writes to (and usually reads from), single source of truth
+- Replica: usually used for reads or as backup; it does not accept writes from the app in a simple setup, it just follows the Primary
+What is the role of the web server (on each backend server)
+- Receives HTTP(S) request from the load balancer, returns static files if available, and sends non-static requests to the application server
+What is the role of the application server (on each backend server)
+- Handles backend code, business logic, and talks to the database when needed
+What is the role of the database (on each backend server)
+- Stores data; one acts as Primary DB, the other as Replica DB that copies data from the Primary
+What is the server using to communicate with the computer of the user requesting the website
+- It uses HTTP(S) over TCP/IP, but now the user talks first to the load balancer, and the load balancer talks to the backend servers
+
+Issues with this infrastructure:
+SPOF:
+- Load balancer is a Single Point Of Failure – if HAProxy server (8.8.8.8) dies, no one can reach any backend server even if they are fine
+- Primary database is also a SPOF for writes – if the Primary DB dies, the app can’t write data until a failover/promotion(Replica becomes Primary) happens
+Security issues (no firewall, no HTTPS):
+- No firewall: everything is exposed, no filtering of which IPs/ports can talk to which servers
+- No HTTPS: traffic is not encrypted, data like passwords/cookies can be sniffed or modified
+No monitoring:
+- No system watching if servers, load balancer, or databases are up/down
+- No alerts, no metrics (CPU, RAM, QPS, errors) so issues can happen and no one will notice quickly
