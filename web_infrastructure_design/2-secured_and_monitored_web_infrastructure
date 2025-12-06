@@ -1,0 +1,65 @@
+1- User opens their browser, enters "www.foobar.com" into their search box
+2- Browser asks DNS to switch it to an IP address
+3- DNS responds with 8.8.8.8 (this time 8.8.8.8 is still the load balancer IP)
+4- After Browser gets it, it sends an HTTPS request to that address (on port 443 instead of 80 since its now secured)
+5- The request hits the first firewall (edge firewall). It only allows traffic on ports 80/443 to the load balancer and blocks everything else
+6- The request passes the first firewall and reaches the load balancer server (machine with IP 8.8.8.8 running HAProxy and having the SSL certificate for www.foobar.com)
+7- Load balancer (HAProxy) terminates SSL: it uses the SSL certificate to decrypt the HTTPS request into plain HTTP inside the private network
+8- HAProxy looks at its config and picks one of the 2 backend servers (for example using Round Robin: first request to Server 1, second to Server 2, third back to Server 1, etc..)
+9- Before the request reaches the backend servers, it goes through the second firewall (internal firewall). This firewall only allows HTTP traffic from the load balancer to the backend servers on the web/app ports
+10- HAProxy forwards the HTTP request (now decrypted) to the chosen backend server (Server 1 or Server 2)
+11- On that backend server (its own private IP), the web server (Nginx) receives the request first
+12- Nginx checks: If it’s a normal static file (files stored as-is on disk, ex: basic HTML files, .png, .jpg, .css, .js), Nginx sends it directly back to HAProxy
+13- Nginx checks: If it’s a non-static/dynamic request, it sends it to the application server on the same machine to process it and return the response back to Nginx
+14- When the application server needs data, it talks to the local MySQL database. That database traffic is controlled by the third firewall (DB firewall) that only allows DB connections on the proper port (like 3306) from the app server to MySQL
+15- As before: one server is configured as Primary DB, the other as Replica DB (Primary handles writes, Replica copies from Primary through replication)
+16- Application server sends back HTTP response to Nginx
+17- Nginx sends the response back to HAProxy
+18- HAProxy re-uses the existing HTTPS connection to the client and sends the response back to the user’s browser
+19- On each server (load balancer + backend servers) a monitoring client (agent) is running. It collects logs/metrics (CPU, RAM, HTTP requests, errors, etc.) and sends them to an external monitoring service (like Sumologic or whatever) in the background
+
+For every additional element, why am I adding it
+Firewalls (3x):
+- To control and filter traffic between different parts of the infrastructure
+-- First firewall: protects the load balancer from the public internet (only allows HTTP/HTTPS in)
+-- Second firewall: protects backend servers, only allows traffic from the load balancer
+-- Third firewall: protects the database port, only allows DB traffic from the app servers
+SSL certificate (on the load balancer):
+- To serve www.foobar.com over HTTPS, so traffic between user and load balancer is encrypted and secure
+Monitoring clients (3x):
+- One on each server (load balancer + 2 backends) to collect metrics/logs and send them to the monitoring tool so we can see if something is broken or slow
+What are firewalls for
+- They act like security guards for the network
+- Allow only specific ports/IPs/services and block everything else
+- Help prevent direct access to internal services and reduce attack surface
+Why is the traffic served over HTTPS
+- HTTPS encrypts the data between the user and the load balancer
+- Protects sensitive info (passwords, cookies, tokens) from being sniffed or modified
+- Gives authenticity (the user knows they’re talking to the real www.foobar.com via a valid certificate)
+- Modern browsers and users expect HTTPS by default
+What is monitoring used for
+- To know if servers and services are healthy or not
+- To track performance (CPU, RAM, disk, response time, QPS, errors, etc.)
+- To get alerts when something goes wrong (server down, high error rate, DB issues, etc.)
+- Helps debug issues faster because you have history and metrics instead of guessing
+How is the monitoring tool collecting data
+- A small agent/client runs on each server
+- It reads system metrics (CPU, RAM, disk, network), service logs (Nginx logs, app logs, DB logs), and maybe custom metrics
+- The agent sends this data regularly to the monitoring platform (like Sumologic) over the network
+Explain what to do if you want to monitor your web server QPS
+- QPS = Queries Per Second / Requests Per Second
+-- Enable or use Nginx access logs or built-in metrics to count number of requests
+-- Configure the monitoring client to: Read Nginx logs or metrics, extract the number of requests per time, then create a dashboard/graph on the monitoring tool showing “requests per second”, Optionally set alerts if QPS is too high (overload) or too low (maybe site is down)
+
+Issues with this infrastructure:
+Why terminating SSL at the load balancer level is an issue
+- After SSL is terminated at the load balancer, traffic from the load balancer to backend servers is plain HTTP (not encrypted)
+- If someone can access the internal network, they can potentially sniff traffic between load balancer and backends
+- So encryption only protects the "user -> load balancer" part, not the entire path inside
+Why having only one MySQL server capable of accepting writes is an issue
+- The Primary DB is a Single Point Of Failure for writes
+- If the Primary DB goes down, the application can’t write new data (even if the Replica is still fine) until we promote the Replica to be the new Primary
+Why having servers with all the same components (database, web server and application server) might be a problem
+- Harder to separate concerns and scale parts independently (for example, you can’t just scale database without also scaling web/app at the same time)
+- Resource limitation: web, app, and DB are all fighting for the same CPU/RAM/disk on each machine
+- Security blast radius is bigger: if one service on a server is compromised, the attacker might reach DB, app, and web server all on the same box
